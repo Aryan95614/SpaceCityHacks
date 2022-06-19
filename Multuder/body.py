@@ -2,6 +2,7 @@ import pygame
 from Multuder.constants import *
 import os
 from pygame.locals import *
+import random
 
 join = lambda x, y: os.path.join(x, y)
 load = lambda x: pygame.image.load(x)
@@ -13,6 +14,10 @@ groups = pygame.sprite.Group()
 enemies = pygame.sprite.Group()
 lasers = pygame.sprite.Group()
 lava = pygame.sprite.Group()
+
+shooters = pygame.sprite.Group()
+LaserShooter = pygame.sprite.Group()
+shootEnemies = pygame.sprite.Group()
 
 
 class Player(pygame.sprite.Sprite):
@@ -133,6 +138,90 @@ class Player(pygame.sprite.Sprite):
 
         screen.blit(self.image, self.rect)
 
+
+class Laser(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__(LaserShooter)
+        self.image = scale(join('assets', 'laser.png'), info['Laser Size']).convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+    def draw(self, win, obj):
+        self.rect.y -= 5
+        if self.rect.midtop == 0:
+            self.kill()
+
+        for enemy in obj.enemies:
+
+            if pygame.sprite.collide_rect(self, enemy):
+                enemy.kills()
+                obj.enemies.remove(enemy)
+
+        win.blit(self.image, self.rect)
+
+
+class MainPlayer(pygame.sprite.DirtySprite):
+    def __init__(self):
+        super().__init__(shooters)
+        self.image = scale(join('assets', 'Spaceship.png'), info['Player Size'])
+        self.rect = self.image.get_rect()
+        self.rect.x = 300
+        self.rect.y = 600
+        self.laser = []
+        self.change = 5
+        self.counterShooter = 0
+
+    def update(self, win, obj):
+        dx = 0
+        shoot_cooldown = 1
+        self.keys = pygame.key.get_pressed()
+        if self.keys[pygame.K_a] and not self.rect.left <= 0:
+            dx -= self.change
+
+        if self.keys[pygame.K_d] and not self.rect.right >= info['Shooter_Size'][0]:
+            dx += self.change
+
+
+        if self.keys[pygame.K_SPACE] and self.counterShooter < shoot_cooldown:
+            self.counterShooter += 1
+            self.laser.append(Laser(self.rect.x, self.rect.y))
+
+
+        for i in ranlen(self.laser):
+            self.laser[i].draw(win, obj)
+        if not self.keys[pygame.K_SPACE] and self.counterShooter == shoot_cooldown:
+            self.counterShooter = 0
+
+        self.rect.x += dx
+        win.blit(self.image, self.rect)
+
+
+class EnemyShooter(pygame.sprite.DirtySprite):
+    def __init__(self, win):
+        super().__init__(shootEnemies)
+        self.image = scale(join('assets', 'enemy.png'), info['Shooter_Enemy_Size']).convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.x = random.randint(20, info['Shooter_Size'][1] - 70)
+        self.rect.y = random.randint(-20, 0)
+        self.change = random.randint(2, 5) * random.choice([1, -1])
+
+    def display(self, win):
+
+        if self.rect.right >= info['Shooter_Size'][1]:
+            self.change *= -1
+            self.rect.y += 5
+            self.rect.x -= 1
+        if self.rect.left <= 0:
+            self.change *= -1
+            self.rect.y += 75
+            self.rect.x += 1
+
+        self.rect.x += self.change
+        win.blit(self.image, self.rect)
+
+    def kills(self):
+        self.rect.x += 2000
 
 class World():
     def __init__(self, data, tile_size):
@@ -314,7 +403,8 @@ class Window():
         self.blitwin(self.cloud, 440, 333)
 
         # self.draw_grid()
-        if pygame.sprite.spritecollide(self.player, lava, False) or pygame.sprite.spritecollide(self.player, enemies, False):
+        if pygame.sprite.spritecollide(self.player, lava, False) or pygame.sprite.spritecollide(self.player, enemies,
+                                                                                                False):
             self.playHeart -= 1
             self.text = f'Hearts: {self.playHeart}'
             self.heartInfo = self.BasicInfo.render(f'{self.text}', True, info['White'])
@@ -324,13 +414,14 @@ class Window():
         if self.playHeart == 0:
             self.playerDead = True
 
-
         if self.playerDead:
             groups.remove(self.player)
-            if self.lose:self.blitwin(self.loser, 300, 300)
-            else: self.blitwin(self.winner, 300, 300)
+            if self.lose:
+                self.blitwin(self.loser, 300, 300)
+            else:
+                self.blitwin(self.winner, 300, 300)
 
-        else:     
+        else:
             enemies.update(self.win)
             enemies.draw(self.win)
 
@@ -362,3 +453,94 @@ class Window():
                     self.gameover = True
 
         pygame.quit()
+
+
+class Shooter:
+
+    def __init__(self):
+        # set below image to dataclass
+        self.background = scale(join('assets', 'Background.jpg'), info['Shooter_Size'])
+        self.background_rect = self.background.get_rect()
+        self.background_rect.x = 0
+        self.background_rect.y = 0
+        self.Clock = pygame.time.Clock()
+        self.WinorLose = pygame.font.SysFont(pygame.font.get_default_font(), 80)
+        self.winner = self.WinorLose.render('You Win![w]', True, info['White'])
+        self.loser = self.WinorLose.render('You Lose![r]', True, info['White'])
+        self.player = MainPlayer()
+        self.win = pygame.display.set_mode(info['Shooter_Size'])
+        self.enemies = [EnemyShooter(self.win) for i in range(8)]
+        self.gameover = False
+
+    def draw(self, image, rect):
+        self.win.blit(image, rect)
+
+    def update(self):
+        self.Clock.tick(60)
+        self.draw(self.background, self.background_rect)
+        self.player.update(self.win, self)
+
+        for i in ranlen(self.enemies):
+            self.enemies[i].display(self.win)
+            if self.enemies[i].rect.y == 500:
+                self.win.blit(self.winner, (100, 200))
+
+        if len(self.enemies) == 0:
+            self.win.blit(self.winner, (200, 200))
+
+        pygame.display.update()
+
+    def play(self):
+        while not self.gameover:
+            self.update()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.gameover = True
+
+class ThirdGame:
+    def __init__(self):
+
+        self.win = pygame.display.set_mode(info['Third Game'])
+        self.gameover = False
+        self.keys = pygame.key.get_pressed()
+        self.clock = pygame.time.Clock()
+        self.x = 200
+        self.y = 500
+        self.color = (255, 0, 0)
+
+    def update(self):
+        self.clock.tick(60)
+        self.keys = pygame.key.get_pressed()
+
+        if self.keys[pygame.K_a]:
+            self.x -= 1
+
+        if self.keys[pygame.K_d]:
+            self.x += 1
+
+        if self.keys[pygame.K_w]:
+            self.y -= 1
+
+        if self.keys[pygame.K_s]:
+            self.y += 1
+
+        if self.keys[pygame.K_SPACE]:
+            self.color = (0, 255, 0)
+
+        if self.keys[pygame.K_t]:
+            self.color = (0, 0, 255)
+
+        if self.keys[pygame.K_b]:
+            self.color = (255, 0, 0)
+
+
+        pygame.draw.rect(self.win, self.color, pygame.Rect(self.x, self.y, 60, 20)) # color is red
+        pygame.display.update()
+    def play(self):
+
+        while not self.gameover:
+            self.update()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.gameover = True
